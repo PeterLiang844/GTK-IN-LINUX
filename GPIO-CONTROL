@@ -1,0 +1,130 @@
+import gi
+gi.require_version('Gtk', '3.0')
+from gi.repository import Gtk, GLib
+import subprocess
+import time
+
+class ToggleButtonApp(Gtk.Window):
+    def __init__(self):
+        super().__init__(title="GPIO CONTROL")
+
+        grid = Gtk.Grid()
+
+        # 创建6个Toggle按钮，分别用于控制外部输出和读取外部输入
+        self.button1 = Gtk.ToggleButton(label="EXT_OUT1 OFF")
+        self.button2 = Gtk.ToggleButton(label="EXT_OUT2 OFF")
+        self.button3 = Gtk.ToggleButton(label="EXT_OUT3 OFF")
+        self.button4 = Gtk.ToggleButton(label="EXT_IN1 OFF")
+        self.button4.set_sensitive(False)  # 禁用按钮
+        self.button5 = Gtk.ToggleButton(label="EXT_IN2 OFF")
+        self.button5.set_sensitive(False)  # 禁用按钮
+        self.button6 = Gtk.ToggleButton(label="EXT_IN3 OFF")
+        self.button6.set_sensitive(False)  # 禁用按钮
+
+        # 连接按钮的"toggled"事件到相应的处理函数
+        self.button1.connect("toggled", self.on_toggle_button_toggled, self.button1, "EXT_OUT1")
+        self.button2.connect("toggled", self.on_toggle_button_toggled, self.button2, "EXT_OUT2")
+        self.button3.connect("toggled", self.on_toggle_button_toggled, self.button3, "EXT_OUT3")
+        self.button4.connect("toggled", self.on_toggle_button_toggled, self.button4, "EXT_IN1")
+        self.button5.connect("toggled", self.on_toggle_button_toggled, self.button5, "EXT_IN2")
+        self.button6.connect("toggled", self.on_toggle_button_toggled, self.button6, "EXT_IN3")
+
+        # 将按钮添加到网格布局中
+        grid.add(self.button1)
+        grid.attach(self.button2, 1, 0, 1, 1)
+        grid.attach(self.button3, 2, 0, 1, 1)
+        grid.attach(self.button4, 0, 1, 1, 1)
+        grid.attach(self.button5, 1, 1, 1, 1)
+        grid.attach(self.button6, 2, 1, 1, 1)
+
+        self.add(grid)
+
+        # 创建一个字典来存储外部输入的状态
+        self.ext_in_values = {
+            7: 0,
+            8: 0,
+            9: 0,
+        }
+
+        # 更新外部输入的状态，并定时执行更新
+        self.update_gpio_inputs()
+        GLib.timeout_add_seconds(1, self.update_gpio_inputs)
+
+    # Toggle按钮的事件处理函数
+    def on_toggle_button_toggled(self, button, widget, gpio_name):
+        if button.get_active():
+            button.set_label(f"{gpio_name} ON")
+            command = ""
+            if gpio_name == "EXT_OUT1":
+                command = "gpioset gpiochip0 0=1"
+            elif gpio_name == "EXT_OUT2":
+                command = "gpioset gpiochip0 1=1"
+            elif gpio_name == "EXT_OUT3":
+                command = "gpioset gpiochip0 6=1"
+
+            if command:
+                self.run_gpio_command(command)
+        else:
+            button.set_label(f"{gpio_name} OFF")
+            command = ""
+            if gpio_name == "EXT_OUT1":
+                command = "gpioset gpiochip0 0=0"
+            elif gpio_name == "EXT_OUT2":
+                command = "gpioset gpiochip0 1=0"
+            elif gpio_name == "EXT_OUT3":
+                command = "gpioset gpiochip0 6=0"
+
+            if command:
+                self.run_gpio_command(command)
+
+    # 更新外部输入状态的函数
+    def update_gpio_inputs(self):
+        for gpio_number in self.ext_in_values.keys():
+            value = self.read_gpio_input(gpio_number)
+            self.ext_in_values[gpio_number] = value
+
+        self.update_input_buttons()
+
+        return True  # 返回True以继续定时器
+
+    # 更新按钮状态的函数
+    def update_input_buttons(self):
+        self.update_input_button(self.button4, "EXT_IN1", self.ext_in_values[7])
+        self.update_input_button(self.button5, "EXT_IN2", self.ext_in_values[8])
+        self.update_input_button(self.button6, "EXT_IN3", self.ext_in_values[9])
+
+    # 更新单个按钮状态的函数
+    def update_input_button(self, button, gpio_name, value):
+        if value == 1:
+            button.set_label(f"{gpio_name} ON")
+            button.set_active(True)
+        else:
+            button.set_label(f"{gpio_name} OFF")
+            button.set_active(False)
+
+    # 读取GPIO输入状态的函数
+    def read_gpio_input(self, gpio_number):
+        command = f"gpioget gpiochip0 {gpio_number}"
+        try:
+            result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                return int(result.stdout.strip())
+        except subprocess.TimeoutExpired:
+            print("Command execution timed out")
+        except subprocess.CalledProcessError:
+            print("GPIO command failed")
+
+        return 0  # 默认为GPIO关闭
+
+    # 执行GPIO命令的函数
+    def run_gpio_command(self, command):
+        try:
+            subprocess.run(command, shell=True, check=True)
+        except subprocess.CalledProcessError as e:
+            print(f"Error executing command: {e}")
+
+# 创建应用窗口实例并运行
+win = ToggleButtonApp()
+win.connect("destroy", Gtk.main_quit)
+win.show_all()
+Gtk.main()
